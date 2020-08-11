@@ -34,6 +34,9 @@ struct BenchmarkInstance {
   double min_time;
   IterationCount iterations;
   int threads;  // Number of concurrent threads to us
+#if defined(BENCHMARK_HAS_CXX11)
+  std::function<void(int, std::function<void(int)>)> threading_api;
+#endif
 
   State Run(IterationCount iters, int thread_id, internal::ThreadTimer* timer,
             internal::ThreadManager* manager) const;

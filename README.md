@@ -900,11 +900,42 @@ single-threaded code, you may want to use real-time ("wallclock") measurements
 for latency comparisons:
 
 ```c++
-BENCHMARK(BM_test)->Range(8, 8<<10)->UseRealTime();
+BENCHMARK(BM_test)->ThreadRange(8, 8<<10)->UseRealTime();
 ```
 
 Without `UseRealTime`, CPU time is used by default.
 
+Google/benchmark uses std::thread as multithreading environment per default.
+If you want to use another multithreading environment (e.g. OpenMP), you can 
+specify a lambda function, which spawns the threads. The function has the 
+signature `void(int, std::function<void(int)`. The first argument determines 
+the number of threads. The second argument is a function, which has to be 
+called by every created thread. The integer argument passed to that function 
+is the thread index.
+```c++
+static void BM_MultiThreaded(benchmark::State& state) {
+  // Two OpenMP threads enter the function. 
+  if (state.thread_index == 0) {
+    // Setup code here.
+  }
+  for (auto _ : state) {
+    // Run the test as normal. 
+  }
+  if (state.thread_index == 0) {
+    // Teardown code here.
+  }
+}
+
+void OpenMPThreading(int threads, std::function<void(int)>&& fn)
+{
+#pragma omp parallel num_threads(threads)
+  fn(omp_get_thread_num());
+}
+
+BENCHMARK(BM_MultiThreaded)->UseThreadingAPI(OpenMPThreading)->Threads(2);
+```
+
+  
 <a name="cpu-timers" />
 
 ### CPU Timers

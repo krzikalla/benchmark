@@ -183,6 +183,7 @@ BENCHMARK(BM_test)->Unit(benchmark::kMillisecond);
 #include <initializer_list>
 #include <type_traits>
 #include <utility>
+#include <functional>
 #endif
 
 #if defined(_MSC_VER)
@@ -945,6 +946,15 @@ class Benchmark {
   // Equivalent to ThreadRange(NumCPUs(), NumCPUs())
   Benchmark* ThreadPerCpu();
 
+#if defined(BENCHMARK_HAS_CXX11)
+  // Uses an alternative threading API to create the threads in multithreading tests.
+  // Lambda resolves to a callable with the signature void(int, std::function<void(int). The first
+  // argument determines the number of threads, the second argument is a function, which has to be called by every
+  // created thread. The integer argument passed to that function is the thread index.
+  template<class Lambda>
+  Benchmark* UseThreadingAPI(Lambda&& ta) { threading_api_ = ta; return this; }
+#endif
+
   virtual void Run(State& state) = 0;
 
  protected:
@@ -973,6 +983,9 @@ class Benchmark {
   BigOFunc* complexity_lambda_;
   std::vector<Statistics> statistics_;
   std::vector<int> thread_counts_;
+#if defined(BENCHMARK_HAS_CXX11)
+  std::function<void(int, std::function<void(int)>)> threading_api_;
+#endif
 
   Benchmark& operator=(Benchmark const&);
 };

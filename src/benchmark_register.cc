@@ -174,6 +174,9 @@ bool BenchmarkFamilies::FindBenchmarks(
         instance.complexity_lambda = family->complexity_lambda_;
         instance.statistics = &family->statistics_;
         instance.threads = num_threads;
+#if defined(BENCHMARK_HAS_CXX11)
+        instance.threading_api = family->threading_api_;
+#endif
 
         // Add arguments to instance name
         size_t arg_i = 0;

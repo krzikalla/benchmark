@@ -203,20 +203,33 @@ class BenchmarkRunner {
     std::unique_ptr<internal::ThreadManager> manager;
     manager.reset(new internal::ThreadManager(b.threads));
 
-    // Run all but one thread in separate threads
-    for (std::size_t ti = 0; ti < pool.size(); ++ti) {
-      pool[ti] = std::thread(&RunInThread, &b, iters, static_cast<int>(ti + 1),
-                             manager.get());
+#if defined(BENCHMARK_HAS_CXX11)
+    if (b.threading_api)
+    {
+      auto mp = manager.get();
+      b.threading_api(b.threads, [this, mp](int thread_id)
+      { 
+        RunInThread(&this->b, this->iters, thread_id, mp); 
+      });
     }
-    // And run one thread here directly.
-    // (If we were asked to run just one thread, we don't create new threads.)
-    // Yes, we need to do this here *after* we start the separate threads.
-    RunInThread(&b, iters, 0, manager.get());
-
-    // The main thread has finished. Now let's wait for the other threads.
-    manager->WaitForAllThreads();
-    for (std::thread& thread : pool) thread.join();
-
+    else
+#endif
+    {
+      // Run all but one thread in separate threads
+      for (std::size_t ti = 0; ti < pool.size(); ++ti) {
+        pool[ti] = std::thread(&RunInThread, &b, iters, static_cast<int>(ti + 1),
+                               manager.get());
+      }
+      // And run one thread here directly.
+      // (If we were asked to run just one thread, we don't create new threads.)
+      // Yes, we need to do this here *after* we start the separate threads.
+      RunInThread(&b, iters, 0, manager.get());
+  
+      // The main thread has finished. Now let's wait for the other threads.
+      manager->WaitForAllThreads();
+      for (std::thread& thread : pool) thread.join();
+    }
+    
     IterationResults i;
     // Acquire the measurements/counters from the manager, UNDER THE LOCK!
     {
