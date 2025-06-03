@@ -40,6 +40,7 @@ BENCHMARK(BM_StringCopy);
 //       my_unittest --benchmark_filter=String
 //       my_unittest --benchmark_filter='Copy|Creation'
 int main(int argc, char** argv) {
+  benchmark::MaybeReenterWithoutASLR(argc, argv);
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
   benchmark::Shutdown();
@@ -238,6 +239,16 @@ BENCHMARK(BM_test)->Unit(benchmark::kMillisecond);
   _Pragma("diagnostic push") \
   _Pragma("diag_suppress deprecated_entity_with_custom_message")
 #define BENCHMARK_RESTORE_DEPRECATED_WARNING _Pragma("diagnostic pop")
+#elif defined(_MSC_VER)
+#define BENCHMARK_BUILTIN_EXPECT(x, y) x
+#define BENCHMARK_DEPRECATED_MSG(msg) __declspec(deprecated(msg))
+#define BENCHMARK_WARNING_MSG(msg)                           \
+  __pragma(message(__FILE__ "(" BENCHMARK_INTERNAL_TOSTRING( \
+      __LINE__) ") : warning note: " msg))
+#define BENCHMARK_DISABLE_DEPRECATED_WARNING \
+  __pragma(warning(push)) \
+  __pragma(warning(disable : 4996))
+#define BENCHMARK_RESTORE_DEPRECATED_WARNING __pragma(warning(pop))
 #else
 #define BENCHMARK_BUILTIN_EXPECT(x, y) x
 #define BENCHMARK_DEPRECATED_MSG(msg)
@@ -333,6 +344,8 @@ using callback_function = std::function<void(const benchmark::State&)>;
 
 // Default number of minimum benchmark running time in seconds.
 const char kDefaultMinTimeStr[] = "0.5s";
+
+BENCHMARK_EXPORT void MaybeReenterWithoutASLR(int, char**);
 
 // Returns the version of the library.
 BENCHMARK_EXPORT std::string GetBenchmarkVersion();
@@ -608,6 +621,17 @@ inline BENCHMARK_ALWAYS_INLINE void DoNotOptimize(Tp const& value) {
   _ReadWriteBarrier();
 }
 
+template <class Tp>
+inline BENCHMARK_ALWAYS_INLINE void DoNotOptimize(Tp& value) {
+  internal::UseCharPointer(&reinterpret_cast<char const volatile&>(value));
+  _ReadWriteBarrier();
+}
+
+template <class Tp>
+inline BENCHMARK_ALWAYS_INLINE void DoNotOptimize(Tp&& value) {
+  internal::UseCharPointer(&reinterpret_cast<char const volatile&>(value));
+  _ReadWriteBarrier();
+}
 #else
 template <class Tp>
 inline BENCHMARK_ALWAYS_INLINE void DoNotOptimize(Tp&& value) {
@@ -952,6 +976,8 @@ class BENCHMARK_EXPORT BENCHMARK_INTERNAL_CACHELINE_ALIGNED State {
 
   BENCHMARK_ALWAYS_INLINE
   std::string name() const { return name_; }
+
+  size_t range_size() const { return range_.size(); }
 
  private:
   // items we expect on the first cache line (ie 64 bytes of the struct)
@@ -1657,9 +1683,10 @@ class Fixture : public internal::Benchmark {
       (::benchmark::internal::RegisterBenchmarkInternal(                      \
           ::benchmark::internal::make_unique<UniqueName>()))
 
-#define BENCHMARK_TEMPLATE_INSTANTIATE_F(BaseClass, Method, ...) \
-  BENCHMARK_TEMPLATE_PRIVATE_INSTANTIATE_F(                      \
-      BaseClass, Method, BENCHMARK_PRIVATE_NAME(tf), __VA_ARGS__)
+#define BENCHMARK_TEMPLATE_INSTANTIATE_F(BaseClass, Method, ...)    \
+  BENCHMARK_TEMPLATE_PRIVATE_INSTANTIATE_F(                         \
+      BaseClass, Method, BENCHMARK_PRIVATE_NAME(BaseClass##Method), \
+      __VA_ARGS__)
 
 // This macro will define and register a benchmark within a fixture class.
 #define BENCHMARK_F(BaseClass, Method)           \
@@ -1686,6 +1713,7 @@ class Fixture : public internal::Benchmark {
 // Note the workaround for Hexagon simulator passing argc != 0, argv = NULL.
 #define BENCHMARK_MAIN()                                                \
   int main(int argc, char** argv) {                                     \
+    benchmark::MaybeReenterWithoutASLR(argc, argv);                     \
     char arg0_default[] = "benchmark";                                  \
     char* args_default = reinterpret_cast<char*>(arg0_default);         \
     if (!argv) {                                                        \
@@ -1730,7 +1758,10 @@ struct BENCHMARK_EXPORT CPUInfo {
 
 // Adding Struct for System Information
 struct BENCHMARK_EXPORT SystemInfo {
+  enum class ASLR { UNKNOWN, ENABLED, DISABLED };
+
   std::string name;
+  ASLR ASLRStatus;
   static const SystemInfo& Get();
 
  private:
